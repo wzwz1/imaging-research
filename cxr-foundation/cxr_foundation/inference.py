@@ -57,6 +57,7 @@ _ELIXR_C_RESPONSE_SHAPE = (1, 8, 8, 1376)
 class ModelVersion(enum.Enum):
   V1 = enum.auto()  # CXR Foundation model V1.
   V2 = enum.auto()  # Data efficient classification output from 2-stage ELIXR model.
+  V2_C = enum.auto()
   V2_CONTRASTIVE = enum.auto() # Contrastive output from 2-stage ELIXR model.
 
 
@@ -128,6 +129,8 @@ def generate_embeddings(
     embeddings_fn = lambda x: embeddings_v2(x, 'img_emb')
   elif model_version == ModelVersion.V2_CONTRASTIVE:
     embeddings_fn = lambda x: embeddings_v2(x, 'all_contrastive_img_emb')
+  elif model_version == ModelVersion.V2_C:
+    embeddings_fn = embeddings_v2_c
   else:
     raise ValueError('Model version {model_version.name!r} is unsupported.')
 
@@ -181,6 +184,34 @@ def embeddings_v1(image_example: tf.train.Example) -> np.ndarray:
   embeddings = np.array(response[0][0], dtype=np.float32)
   assert embeddings.shape == (1376,)
   return embeddings
+
+def embeddings_v2_c(image_example: tf.train.Example) -> np.ndarray:
+  """Create CXR Foundation V2 ELIXR-C model embeddings.
+  - Query ELIXR-C for a 1x8x8x1376 dimension embedding.
+
+  Parameters
+  ----------
+  image_example: TF Example with image bytes.
+  fetch_key: which output to fetch from the inference results.
+
+  Returns
+  -------
+  NumPy array of shape (1x8x8x1376).
+  """
+  instance = {
+      'b64': base64.b64encode(image_example.SerializeToString()).decode()
+  }
+  elixr_c_response = _embeddings_from_service(
+      instance,
+      constants.ENDPOINT_V2_C.project_name,
+      constants.ENDPOINT_V2_C.endpoint_location,
+      constants.ENDPOINT_V2_C.endpoint_id,
+  )
+  elixr_c_embedding = np.expand_dims(
+      np.array(elixr_c_response[0], dtype=np.float32), axis=0
+  )
+  assert elixr_c_embedding.shape == _ELIXR_C_RESPONSE_SHAPE
+  return elixr_c_embedding
 
 
 def embeddings_v2(image_example: tf.train.Example, fetch_key: str) -> np.ndarray:
